@@ -31,7 +31,7 @@ REAL_ARM_PORT = "/dev/ttyACM0"
 # 空间限制参数
 MAX_RADIUS = 0.5      
 MIN_RADIUS_XY = 0.05 #0.05  
-MIN_JOINT4_Z = 0.0    # 这是Joint4/Wrist的高度，不是指尖高度      
+MIN_JOINT4_Z = 0.227    # 这是Joint4/Wrist的高度，不是指尖高度      
 MAX_Y = -0.05 
 
 # 测试模式速度
@@ -426,8 +426,7 @@ class SixDofArm:
             dist = np.linalg.norm(ideal_pos)
             if dist > MAX_RADIUS:
                 ideal_pos *= (MAX_RADIUS / dist)
-            #if not np.array_equal(old_pos, self.target_pos):
-            #    clamped_msg = "🔒 Clamped"
+
         else:
             clamped_msg = "⚠️ Zero Mode"
 
@@ -522,6 +521,9 @@ class SixDofSim:
         else: 
             self.test_gripper_pos = 0.0
 
+        self.is_homing = False       # 是否正在自动归零中
+        self.rb_safety_lock = False  # 是否处于安全锁定（等待松开RB）
+
     def _init_visuals(self):
         self.viz.viewer["target"].set_object(g.Sphere(0.04), g.MeshBasicMaterial(color=0xff0000, opacity=0.8))
         self.viz.viewer["workspace_outer"].set_object(g.Sphere(MAX_RADIUS), 
@@ -546,9 +548,22 @@ class SixDofSim:
         pygame.event.pump()
         xyz_delta = np.zeros(3)
         manual = {'j4':0, 'j5':0, 'j6':0, 'gripper':0}
-        rb_pressed = False 
         
-        if not self.js: return xyz_delta, manual, False, False
+        # 获取物理 RB 键状态
+        phys_rb_pressed = self.js.get_button(BTN_RB) == 1
+        
+        #处理 RB 安全锁
+        # 如果处于锁定状态：强制认为 RB 没按，直到物理 RB 松开
+        if self.rb_safety_lock:
+            if not phys_rb_pressed:
+                self.rb_safety_lock = False # 解锁
+                logger.info("🔓 RB Released - Safety Lock Disengaged")
+            final_rb_pressed = False
+        else:
+            final_rb_pressed = phys_rb_pressed
+
+        if not self.js: 
+            return xyz_delta, manual, False, False
 
         # 1. 模式切换 (Back键)
         back_click = False
@@ -562,17 +577,25 @@ class SixDofSim:
             if x_btn_state == 1: 
                 if self.x_press_start_time is None:
                     self.x_press_start_time = time.time()
-                    self.arm.reset() # 短按普通复位
-                    self.zero_reset_done = False
+                    if not self.is_homing:
+                        self.arm.reset() # 短按普通复位
+                    # 短按期间，强制断开 RB，防止瞬移
+                    final_rb_pressed = False
                 else:
                     duration = time.time() - self.x_press_start_time
-                    if duration > LONG_PRESS_TIME and not self.zero_reset_done:
-                        self.arm.reset_to_zero() # 长按归零
-                        self.zero_reset_done = True
-                return np.zeros(3), manual, False , back_click # 复位时不移动
+                    if duration > LONG_PRESS_TIME :
+                        if not self.is_homing:
+                            logger.info("🚀 Starting Smooth Homing to ZERO...")
+                            self.is_homing = True # 开启归位模式
+                        # 在归位过程中，强制允许发送指令 (忽略 RB 锁)
+                        # 但归位结束后，会进入 safety_lock
+                        final_rb_pressed = True
+                    else:
+                        # 长按未达到时间时，保持断开，等待触发
+                        final_rb_pressed = False
+                return np.zeros(3), manual, final_rb_pressed , back_click # 复位时不移动
             else: 
                 self.x_press_start_time = None
-                self.zero_reset_done = False
 
         lx = self._filter_stick(self.js.get_axis(AXIS_LX))
         ly = self._filter_stick(self.js.get_axis(AXIS_LY))
@@ -594,20 +617,22 @@ class SixDofSim:
         if rt_val > 0.1: manual['gripper'] = 1 
         elif lt_val > 0.1: manual['gripper'] = -1
         
-        rb_pressed = self.js.get_button(BTN_RB) == 1
+        #rb_pressed = self.js.get_button(BTN_RB) == 1
             
-        return xyz_delta, manual, rb_pressed, back_click
+        return xyz_delta, manual, final_rb_pressed, back_click
 
     def run(self):
         logger.info("🚀 Simulation Loop Started")
         force_flush_log() # [关键] 启动时立即写入硬盘，防止开局崩溃无日志
         
         log_counter = 0
+        HOMING_SPEED = 0.005 # 归位速度 (弧度/帧)，约 0.3 rad/s，平滑缓慢
         
         try:
             while self.running:
                 for event in pygame.event.get():
-                    if event.type == pygame.QUIT: self.running = False
+                    if event.type == pygame.QUIT: 
+                        self.running = False
                 
                 xyz_delta, manual_ctrl, rb_pressed , back_click = self._get_inputs()
                 sim_mode_str = "💻 SIM ONLY"
@@ -616,12 +641,41 @@ class SixDofSim:
                     self.mode_joint_ctrl = not self.mode_joint_ctrl
                     if self.real_arm: 
                         self._sync_test_target_from_real()
+                
+                # 优先处理 Homing 归位模式
+                if self.is_homing:
+                    sim_mode_str = "♻️ HOMING..."
+                    # 1. 计算插值: 让每个关节缓慢趋向 0
+                    max_diff = 0.0
+                    for i in range(len(self.arm.q)):
+                        diff = 0.0 - self.arm.q[i]
+                        step = np.sign(diff) * min(abs(diff), HOMING_SPEED)
+                        self.arm.q[i] += step
+                        max_diff = max(max_diff, abs(diff))
+                    
+                    # 2. 更新 FK (保证 visualizer 和 target_pos 同步)
+                    pin.framesForwardKinematics(self.arm.model, self.arm.data, self.arm.q)
+                    self.arm.target_pos = self.arm.data.oMf[self.arm.ik_frame_id].translation.copy()
+                    
+                    # 3. 发送给真机 (rb_pressed 在 Homing 时被强制为 True)
+                    if self.real_arm and rb_pressed:
+                        self.real_arm.send_joints_from_sim(self.arm.q)
+                    
+                    # 4. 判断是否到达 (允许 0.01 弧度误差)
+                    if max_diff < 0.01:
+                        self.is_homing = False
+                        self.arm.reset_to_zero() # 最终对齐
+                        self.rb_safety_lock = True # [关键] 开启安全锁，防止 RB 误触
+                        logger.info("✅ Homing Complete. Safety Lock Engaged (Release RB).")
+                    
+                    # Homing 期间跳过后续逻辑
+                    info_str = f"{sim_mode_str} | Dist: {max_diff:.3f}"
 
-                if self.mode_joint_ctrl :
+                elif self.mode_joint_ctrl :
                     if not self.real_arm:
                          print("REAL ARM NOT READY, CAN NOT STAY IN CTRL JONTS MODE")
                          sim_mode_str = "⚠️ REAL ARM NOT READY, CAN NOT STAY IN CTRL JONTS MODE"
-                         self.mode_joint_ctrl = not self.mode_joint_ctrl
+                         self.mode_joint_ctrl = False
                     else:
                         sim_mode_str = "🛠️ CTRL REAL JOINTS"
                         lx = self._filter_stick(self.js.get_axis(AXIS_LX))
@@ -677,13 +731,17 @@ class SixDofSim:
                                 sim_mode_str = "⛔ CTL BLOCKED (IK Err)"
                         else:
                             # [SYNC 模式]
+                            # 如果此时处于 Safety Lock 状态，rb_pressed 会被强制为 False
+                            # 代码会正确地进入这里，读取真机数据（此时真机应该已经在 0 位了）
                             q_real = self.real_arm.read_joints()
                             if q_real is not None:
                                 self.arm.set_state_from_hardware(q_real)
                                 debug_msg, cond, clamp_msg = "Syncing", 0.0, ""
                                 sim_mode_str = "👁️ SYNC <- REAL"
+                                if self.rb_safety_lock: 
+                                    sim_mode_str = "🔒 RELEASE RB"
                             else:
-                                debug_msg, cond, clamp_msg, success = self.arm.update(xyz_delta, manual_ctrl)
+                                #debug_msg, cond, clamp_msg, success = self.arm.update(xyz_delta, manual_ctrl)
                                 sim_mode_str = "⚠️ READ FAIL"
                         info_str = (f"{sim_mode_str} | {debug_msg} {clamp_msg} | "
                             f"Tgt:[{self.arm.target_pos[0]:.3f}, {self.arm.target_pos[1]:.3f}, {self.arm.target_pos[2]:.3f}] | "
@@ -701,14 +759,18 @@ class SixDofSim:
                 self.viz.display(self.arm.q)
                 self.viz.viewer["target"].set_transform(pin.SE3(np.eye(3), self.arm.target_pos).homogeneous)
                 
-                if rb_pressed and self.real_arm:
-                    self.viz.viewer["target"].set_object(g.Sphere(0.04), g.MeshBasicMaterial(color=0x00ff00, opacity=0.8))
-                elif self.real_arm:
-                    self.viz.viewer["target"].set_object(g.Sphere(0.04), g.MeshBasicMaterial(color=0x0000ff, opacity=0.8))
-                else:
-                    self.viz.viewer["target"].set_object(g.Sphere(0.04), g.MeshBasicMaterial(color=0xff0000, opacity=0.8))
-
-
+                # 颜色指示状态
+                target_color = 0xff0000 # 红
+                if self.is_homing: 
+                    target_color = 0xffff00 # 黄色 (归位中)
+                elif self.rb_safety_lock: 
+                    target_color = 0xffa500 # 橙色 (等待解锁)
+                elif rb_pressed and self.real_arm: 
+                    target_color = 0x00ff00 # 绿色 (正常控制)
+                elif self.real_arm: 
+                    target_color = 0x0000ff # 蓝色 (同步)
+                
+                self.viz.viewer["target"].set_object(g.Sphere(0.04), g.MeshBasicMaterial(color=target_color, opacity=0.8))    
                 
                 print(info_str, end='\r')
                 
