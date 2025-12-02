@@ -55,7 +55,8 @@ def main():
         mesh_dir=MESH_DIR,
         fps=teleop_config.fps,
         visualize=teleop_config.visualize,
-        config=teleop_config
+        config=teleop_config,
+        inverse_kinematics={}
     )
     teleop.connect()
     print("✅ 手柄与 IK 核心就绪")

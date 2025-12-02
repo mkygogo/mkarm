@@ -1,2 +1,6 @@
 __pycache__/
 logs/
+hilserl/logs/
+data/
+data_*/
+outputs/
