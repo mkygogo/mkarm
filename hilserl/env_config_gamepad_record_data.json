@@ -1,0 +1,73 @@
+{
+  "mode": "record",
+  "device": "cuda",
+  "dataset": {
+    "repo_id": "mkygogo/mk_arm_hil_serl_v1",
+    "task": "pick_cube",
+    "root": "data/",
+    "num_episodes_to_record": 30,
+    "push_to_hub": false
+  },
+  "env": {
+    "name": "real_robot",
+    "fps": 30,
+    "robot": {
+      "type": "mk_robot",
+      "port": "/dev/ttyACM0",
+      "joint_velocity_scaling": 1.0,
+      "cameras": {
+        "wrist_camera": {
+          "type": "opencv",
+          "index_or_path": 2,
+          "width": 640,
+          "height": 360,
+          "fps": 30
+        },
+        "side_camera": {
+          "type": "opencv",
+          "index_or_path": 0,
+          "width": 640,
+          "height": 480,
+          "fps": 30
+        }
+      }
+    },
+    "teleop": {
+      "type": "gamepad_ik",
+      "urdf_path": "../hardware/urdf/urdf/dk2.SLDASM.urdf",
+      "mesh_dir": "../hardware/urdf",
+      "trans_speed": 0.002,
+      "rot_speed": 0.02,
+      "visualize": true,
+      "inverse_kinematics": {
+        "target_frame_name": "link4", 
+        "end_effector_bounds": {
+          "min": [-0.139, -0.320, 0.227],
+          "max": [0.128, -0.116, 0.309]
+        }
+      }
+    }
+  },
+  "policy": {
+    "type": "act",
+    "n_action_steps": 10,
+    "chunk_size": 20
+  },
+  "processor": {
+    "image_preprocessing": null,
+    "observation": {
+      "add_joint_velocity_to_observation": true,
+      "add_current_to_observation": false,
+      "display_cameras": true
+    },
+    "gripper": {
+      "use_gripper": true,
+      "gripper_penalty": 0.0
+    },
+    "max_gripper_pos": 1.0,
+    "reset": {
+      "reset_time_s": 10.0,
+      "control_time_s": 30.0
+    }
+  }
+}

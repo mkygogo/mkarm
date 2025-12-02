@@ -1,0 +1,1 @@
+1:采集数据之前，用run_real_teleop.py跑一下机械臂，找一下end_effector_bounds的值
