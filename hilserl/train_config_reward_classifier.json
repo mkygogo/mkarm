@@ -1,0 +1,49 @@
+{
+  "dataset": {
+    "repo_id": "mkygogo/mk_arm_hil_serl_v1",
+    "root": "data_cropped_resized",
+    "image_transforms": {
+      "enable": true
+    }
+  },
+  "policy": {
+    "type": "reward_classifier",
+    "push_to_hub": false,
+    "device": "cuda",
+    "model_name": "helper2424/resnet10",
+    "model_type": "cnn",
+    "normalization_mapping": {
+        "VISUAL": "IDENTITY",
+        "STATE": "IDENTITY"
+    },
+    "num_cameras": 2,
+    "num_classes": 2,
+    "hidden_dim": 256,
+    "dropout_rate": 0.1,
+    "learning_rate": 1e-4,
+    "use_amp": true,
+    "input_features": {
+      "observation.images.wrist_camera": {
+        "type": "VISUAL",
+        "shape": [3, 128, 128]
+      },
+      "observation.images.side_camera": {
+        "type": "VISUAL",
+        "shape": [3, 128, 128]
+      }
+    }
+  },
+  "steps": 5000,
+  "batch_size": 32,
+  "eval": {
+    "batch_size": 0,
+    "n_episodes": 0,
+    "use_async_envs": false
+  },
+  "wandb": {
+    "enable": false
+  },
+  "save_freq": 1000,
+  "eval_freq": 1000,
+  "seed": 1000
+}
