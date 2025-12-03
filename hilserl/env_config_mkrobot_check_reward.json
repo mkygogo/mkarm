@@ -1,0 +1,79 @@
+{
+  "mode": "null",
+  "device": "cuda",
+  "dataset": {
+    "repo_id": "mkygogo/mk_arm_hil_serl_v1",
+    "task": "pick_cube",
+    "root": "data/",
+    "num_episodes_to_record": 0,
+    "push_to_hub": false
+  },
+  "env": {
+    "name": "real_robot",
+    "fps": 30,
+    "robot": {
+      "type": "mk_robot",
+      "port": "/dev/ttyACM0",
+      "joint_velocity_scaling": 1.0,
+      "cameras": {
+        "wrist_camera": {
+          "type": "opencv",
+          "index_or_path": 2,
+          "width": 640,
+          "height": 360,
+          "fps": 30
+        },
+        "side_camera": {
+          "type": "opencv",
+          "index_or_path": 0,
+          "width": 640,
+          "height": 480,
+          "fps": 30
+        }
+      }
+    },
+    "teleop": {
+      "type": "gamepad_ik",
+      "urdf_path": "../hardware/urdf/urdf/dk2.SLDASM.urdf",
+      "mesh_dir": "../hardware/urdf",
+      "trans_speed": 0.002,
+      "rot_speed": 0.02,
+      "visualize": true,
+      "inverse_kinematics": {
+        "target_frame_name": "link4",
+        "end_effector_bounds": {
+          "min": [-0.139, -0.320, 0.227],
+          "max": [0.128, -0.116, 0.309]
+        }
+      }
+    },
+    "processor": {
+      "reward_classifier": {
+        "pretrained_path": "outputs/train/2025-12-02/17-30-33_reward_classifier/checkpoints/last/pretrained_model",
+        "success_threshold": 0.7,
+        "success_reward": 1.0
+      },
+      "image_preprocessing": {
+        "crop_params_dict": {
+          "observation.images.wrist_camera": [24, 90, 329, 438],
+          "observation.images.side_camera": [83, 223, 373, 341]
+        },
+        "resize_size": [128, 128]
+      },
+      "observation": {
+        "add_joint_velocity_to_observation": true,
+        "add_current_to_observation": false,
+        "display_cameras": false
+      },
+      "gripper": {
+        "use_gripper": true,
+        "gripper_penalty": 0.0
+      },
+      "max_gripper_pos": 100.0,
+      "reset": {
+        "fixed_reset_joint_positions": [0, 0, 0, 0, 0, 0, 0.0],
+        "reset_time_s": 5
+      }
+    }
+  }
+}
