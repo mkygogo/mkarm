@@ -7,7 +7,7 @@ import argparse
 
 # 确保能导入模块
 sys.path.append("./src")
-
+from lerobot.teleoperators.utils import TeleopEvents
 from lerobot.robots.mkrobot.mk_robot import MKRobot, MKRobotConfig
 from lerobot.teleoperators.gamepad.gamepad_ik_teleop import GamepadIKTeleop, GamepadIKTeleopConfig
 
@@ -71,24 +71,29 @@ def main():
         while True:
             start_time = time.time()
 
-            # --- A. 获取真机状态 ---
-            # robot.get_observation() 会返回 Sim 坐标系下的关节角度
+            # 1. 获取观测
             observation = robot.get_observation()
             
-            # --- B. 计算 IK 动作 ---
-            # Teleop 内部逻辑：
-            # - 如果手柄没动 -> set_state_from_hardware (吸附真机位置)
-            # - 如果手柄动了 -> step (从当前位置开始 IK)
+            # 2. [新增] 获取手柄事件并处理业务逻辑
+            events = teleop.get_teleop_events()
+            
+            # 处理归位请求 (X键长按)
+            if events[TeleopEvents.RERECORD_EPISODE]:
+                # 防止重复触发：只有当前不在归位时才触发
+                if not teleop.core.is_homing:
+                    print("🔄 检测到重置信号 (X)，开始归位...")
+                    teleop.core.start_homing()
+
+            # 3. 计算动作 (get_action 内部会处理: 如果 is_homing=True 则返回归位轨迹，否则返回 IK/吸附)
             action = teleop.get_action(observation)
 
-            # --- C. 发送动作给真机 ---
-            # action 是 Sim 坐标系动作，robot.send_action 会自动转为电机指令
+            # 4. 发送动作
             robot.send_action(action)
 
-            # --- D. 维持频率 ---
+            # ... (保持频率控制代码不变) ...
             dt = time.time() - start_time
-            sleep_time = max(0, (1.0 / 60.0) - dt)
-            time.sleep(sleep_time)
+            if dt < 1.0 / 60:
+                time.sleep(1.0 / 60 - dt)
 
     except KeyboardInterrupt:
         print("\n🛑 用户停止...")

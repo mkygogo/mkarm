@@ -17,14 +17,15 @@ sys.path.append("./src")
 from lerobot.robots.mkrobot.mk_robot import MKRobot, MKRobotConfig
 from lerobot.teleoperators.gamepad.gamepad_ik_teleop import GamepadIKTeleop, GamepadIKTeleopConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.teleoperators.utils import TeleopEvents
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("DataCollector")
 
 # 按键定义 (Xbox)
-BTN_A = 0  # Start Recording
+#BTN_A = 0  # Start Recording
 BTN_Y = 3  # Success & Finish (Hold to mark success, Release to save & home)
-BTN_X = 2  # Fail & Reset (Hold to home)
+#BTN_X = 2  # Fail & Reset (Hold to home)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -117,12 +118,19 @@ def main():
     episode_start_time = 0
 
     try:
+        print(f"\n⏳ 等待开始 Episode {episode_idx}... (按 A 开始)")
         while True:
             loop_start = time.time()
             obs = robot.get_observation()
+            #获取事件 (这一步很重要，它会刷新手柄状态)
+            events = teleop.get_teleop_events()
+
             images = robot.capture_images()
             curr_state = obs['observation.state']
-            if prev_state is None: prev_state = curr_state
+           
+            if prev_state is None: 
+                prev_state = curr_state
+            
             velocity = (curr_state - prev_state) * fps
             prev_state = curr_state
 
@@ -132,7 +140,8 @@ def main():
             # --- 录制状态机 ---
             
             # 1. 开始录制 (A)
-            if teleop.joystick.get_button(BTN_A) and not is_recording:
+            #使用事件判断，同时增加归位状态检查 (安全防护)
+            if events[TeleopEvents.SUCCESS] and not is_recording and not teleop.core.is_homing:
                 print(f"\n🔴 [Ep {episode_idx}] 开始录制...")
                 is_recording = True
                 is_success = False
@@ -170,15 +179,24 @@ def main():
                     sys.stdout.write(f"\r🔴 [recording] Rec: {len(episode_data['action'])} frames")
                 sys.stdout.flush()
 
+                #优先检查重置条件 (X键长按) -> 对应 RERECORD 事件
+                if events[TeleopEvents.RERECORD_EPISODE]:
+                    print(f"\n❌ 检测到重置信号 (X) -> 丢弃数据并归位")
+                    is_recording = False
+                    teleop.core.start_homing() # 显式触发归位
+                    save_and_reset = False     # 确保不进入保存流程
+
                 # 结束条件 1: 松开 Y 键 (下降沿)
-                if y_was_pressed and not teleop.joystick.get_button(BTN_Y):
+                elif y_was_pressed and not teleop.joystick.get_button(BTN_Y):
                     print(f"\n💾 Y键释放 -> 保存 (Success={is_success}) 并归位...")
                     save_and_reset = True
+                    teleop.core.start_homing() # 保存后自动归位
                 
                 # 结束条件 2: 超时
                 elif (time.time() - episode_start_time) > MAX_TIME_S:
                     print(f"\n⏰ 超时 ({MAX_TIME_S}s) -> 保存 (Success={is_success}) 并归位...")
                     save_and_reset = True
+                    teleop.core.start_homing() # 超时后自动归位
                 
                 # 结束条件 3: 归位中断 (X键长按或 Teleop 内部触发了 Homing)
                 elif teleop.core.is_homing: 
