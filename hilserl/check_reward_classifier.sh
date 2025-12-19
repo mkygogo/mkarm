@@ -1,1 +1,0 @@
-python -m lerobot.rl.gym_manipulator --config_path env_config_mkrobot_check_reward.json
