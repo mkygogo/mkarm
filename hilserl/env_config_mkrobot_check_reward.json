@@ -50,14 +50,14 @@
     "processor": {
       "max_gripper_pos": 0.04,
       "reward_classifier": {
-        "pretrained_path": "outputs/train/2025-12-02/17-30-33_reward_classifier/checkpoints/last/pretrained_model",
-        "success_threshold": 0.7,
+        "pretrained_path": "outputs/train/2025-12-16/15-35-29_reward_classifier/checkpoints/last/pretrained_model",
+        "success_threshold": 0.8,
         "success_reward": 1.0
       },
       "image_preprocessing": {
         "crop_params_dict": {
-          "observation.images.wrist_camera": [24, 90, 329, 438],
-          "observation.images.side_camera": [83, 223, 373, 341]
+          "observation.images.wrist_camera": [4, 100, 349, 425],
+          "observation.images.side_camera": [35, 107, 431, 519]
         },
         "resize_size": [128, 128]
       },

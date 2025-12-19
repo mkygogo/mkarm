@@ -4,3 +4,4 @@ hilserl/logs/
 data/
 data_*/
 outputs/
+hilserl/wandb_data/
