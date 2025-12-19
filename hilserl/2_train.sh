@@ -1,0 +1,1 @@
+lerobot-train --config_path train_config_reward_classifier.json

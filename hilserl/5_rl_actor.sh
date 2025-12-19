@@ -1,0 +1,1 @@
+python -m lerobot.rl.actor --config_path env_config_mkrobot_rl.json
