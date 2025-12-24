@@ -1,0 +1,57 @@
+{
+  "mode": "record",
+  "device": "cuda",
+  "dataset": {
+    "repo_id": "mkygogo/mkrobot_pi05_cube",
+    "task": "pick up the small cube and place it in the box",
+    "root": "data/",
+    "num_episodes_to_record": 100,
+    "push_to_hub": false
+  },
+  "processor": {
+    "reset": {
+      "control_time_s": 60
+    }
+  },
+  "env": {
+    "name": "real_robot",
+    "fps": 30,
+    "robot": {
+      "type": "mk_robot",
+      "port": "/dev/ttyACM0",
+      "joint_velocity_scaling": 1.0,
+      "cameras": {
+        "wrist": {
+          "type": "opencv",
+          "index_or_path": 2,
+          "width": 640,
+          "height": 360,
+          "fps": 30
+        },
+        "top": {
+          "type": "opencv",
+          "index_or_path": 0,
+          "width": 640,
+          "height": 480,
+          "fps": 30
+        }
+      }
+    },
+    "teleop": {
+      "type": "gamepad_ik",
+      "urdf_path": "../hardware/urdf/urdf/dk2.SLDASM.urdf",
+      "mesh_dir": "../hardware/urdf",
+      "trans_speed": 0.005,
+      "rot_speed": 0.05,
+      "visualize": true,
+      "inverse_kinematics": {
+        "target_frame_name": "link4", 
+        "end_effector_bounds": {
+          "min": [-0.139, -0.320, 0.227],
+          "max": [0.128, -0.116, 0.309]
+        }
+      }
+    }
+  }
+
+}
